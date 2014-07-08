@@ -9,7 +9,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/howeyc/fsnotify"
 	"go/build"
 	"log"
 	"os"
@@ -139,29 +138,6 @@ func run(binName, binPath string, args []string) (runch chan bool) {
 	return
 }
 
-func getWatcher(buildpath string) (watcher *fsnotify.Watcher, err error) {
-	watcher, err = fsnotify.NewWatcher()
-	addToWatcher(watcher, buildpath, map[string]bool{})
-	return
-}
-
-func addToWatcher(watcher *fsnotify.Watcher, importpath string, watching map[string]bool) {
-	pkg, err := build.Import(importpath, "", 0)
-	if err != nil {
-		return
-	}
-	if pkg.Goroot {
-		return
-	}
-	watcher.Watch(pkg.Dir)
-	watching[importpath] = true
-	for _, imp := range pkg.Imports {
-		if !watching[imp] {
-			addToWatcher(watcher, imp, watching)
-		}
-	}
-}
-
 func rerun(buildpath string, args []string) (err error) {
 	log.Printf("setting up %s %v", buildpath, args)
 
@@ -206,44 +182,24 @@ func rerun(buildpath string, args []string) (err error) {
 		runch <- true
 	}
 
-	var watcher *fsnotify.Watcher
-	watcher, err = getWatcher(buildpath)
+	watcher, err := getWatcher(buildpath)
 	if err != nil {
 		return
 	}
 
 	for {
 		// read event from the watcher
-		we, _ := <-watcher.Event
-		// other files in the directory don't count - we watch the whole thing in case new .go files appear.
-		if filepath.Ext(we.Name) != ".go" {
-			continue
-		}
+		we, _ := <-watcher.Chan()
 
-		log.Print(we.Name)
+		log.Print(we)
 
-		// close the watcher
 		watcher.Close()
-		// to clean things up: read events from the watcher until events chan is closed.
-		go func(events chan *fsnotify.FileEvent) {
-			for _ = range events {
-
-			}
-		}(watcher.Event)
 		// create a new watcher
 		log.Println("rescanning")
 		watcher, err = getWatcher(buildpath)
 		if err != nil {
 			return
 		}
-
-		// we don't need the errors from the new watcher.
-		// we continiously discard them from the channel to avoid a deadlock.
-		go func(errors chan error) {
-			for _ = range errors {
-
-			}
-		}(watcher.Error)
 
 		var installed bool
 		// rebuild
