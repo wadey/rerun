@@ -3,18 +3,15 @@
 package main
 
 import (
-	"fmt"
 	"go/build"
-	"os"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/ronbu/fsevents"
+	"github.com/go-fsnotify/fsevents"
 )
 
 type fseventsWatcher struct {
-	stream  *fsevents.Stream
+	stream  *fsevents.EventStream
 	ch      chan Event
 	quit    chan struct{}
 	pathSet map[string]bool
@@ -27,8 +24,8 @@ func (w *fseventsWatcher) Chan() <-chan Event {
 func (w *fseventsWatcher) Close() error {
 	if w.ch != nil {
 		close(w.quit)
-		close(w.ch)
-		w.stream.Close()
+		w.ch = nil
+		w.stream.Stop()
 	}
 
 	return nil
@@ -37,20 +34,24 @@ func (w *fseventsWatcher) Close() error {
 func getWatcher(buildpath string) (Watcher, error) {
 	pathSet := map[string]bool{}
 	root := addToWatcher(buildpath, pathSet)
-	fi, _ := os.Stat(root)
-	dev := fsevents.Device(fi.Sys().(*syscall.Stat_t).Dev)
-	stream := fsevents.New(dev, fsevents.NOW, 1*time.Second, fsevents.CF_FILEEVENTS, root)
+	// stream := fsevents.New(dev, fsevents.NOW, 1*time.Second, fsevents.CF_FILEEVENTS, root)
+	stream := &fsevents.EventStream{
+		Paths:   []string{root},
+		Latency: 1 * time.Second,
+		Flags:   fsevents.FileEvents | fsevents.WatchRoot,
+	}
 	ch := make(chan Event)
 	quit := make(chan struct{})
+	stream.Start()
 	go func() {
 		for {
 			// read event from the watcher
 			select {
 
-			case events := <-stream.Chan:
+			case events := <-stream.Events:
 				// log.Printf("%#v", e)
 				for _, e := range events {
-					if e.Flags&fsevents.EF_ISFILE != 0 {
+					if e.Flags&fsevents.ItemIsFile != 0 {
 						if strings.HasSuffix(e.Path, ".go") {
 							// TODO check pathSet
 							select {
@@ -67,9 +68,6 @@ func getWatcher(buildpath string) (Watcher, error) {
 
 		}
 	}()
-	if !stream.Start() {
-		return nil, fmt.Errorf("Error starting fsevents.Stream")
-	}
 	return &fseventsWatcher{stream: stream, ch: ch, quit: quit}, nil
 }
 
