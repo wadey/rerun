@@ -4,6 +4,7 @@ package main
 
 import (
 	"go/build"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -55,7 +56,7 @@ func getWatcher(buildpath string) (Watcher, error) {
 						if strings.HasSuffix(e.Path, ".go") {
 							// TODO check pathSet
 							select {
-							case ch <- Event{Name: "/" + e.Path}:
+							case ch <- Event{Name: filepath.Join("/", e.Path)}:
 							case <-quit:
 								return
 							}
