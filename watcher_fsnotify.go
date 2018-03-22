@@ -6,7 +6,7 @@ import (
 	"go/build"
 	"path/filepath"
 
-	"github.com/howeyc/fsnotify"
+	"github.com/fsnotify/fsnotify"
 )
 
 type fsnotifyWatcher struct {
